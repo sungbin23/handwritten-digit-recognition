@@ -1,0 +1,107 @@
+<!-- 작성일: 2026-09-20 17:25 (수정됨) -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>손글씨 숫자 인식 - 웹 버전</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <style>
+        body { background-color: #6a5acd; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; }
+        .container { background: white; padding: 30px; border-radius: 15px; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.2); width: 320px; }
+        canvas { border: 2px solid #f0f0f0; border-radius: 10px; cursor: crosshair; margin-bottom: 20px; }
+        button { margin: 5px; padding: 10px 20px; border: none; border-radius: 20px; color: white; cursor: pointer; font-size: 14px; font-weight: bold; }
+        #btnClear { background-color: #ff6b6b; }
+        #btnPredict { background-color: #6a5acd; }
+        #result { font-size: 16px; font-weight: bold; margin-top: 20px; color: #333; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>손글씨 숫자 인식</h2>
+        <p style="color: #666; font-size: 14px;">아래 캔버스에 0-9 숫자를 그려보세요</p>
+        <canvas id="canvas" width="280" height="280"></canvas>
+        <br>
+        <button id="btnClear">지우기</button>
+        <button id="btnPredict">인식하기</button>
+        <div id="result">모델을 불러오는 중... 잠시만 기다려주세요.</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+        let model;
+
+        function clearCanvas() {
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.beginPath();
+        }
+        clearCanvas();
+
+        async function loadModel() {
+            try {
+                model = await tf.loadLayersModel('https://storage.googleapis.com/tfjs-models/tfjs/mnist_transfer_cnn_v1/model.json');
+                document.getElementById('result').innerText = "숫자를 그리고 '인식하기'를 클릭하세요";
+            } catch (error) {
+                document.getElementById('result').innerText = "모델 로드 실패. 인터넷 연결을 확인하세요.";
+            }
+        }
+        loadModel();
+
+        canvas.addEventListener('mousedown', (e) => { isDrawing = true; draw(e); });
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', () => { isDrawing = false; ctx.beginPath(); });
+        canvas.addEventListener('mouseout', () => { isDrawing = false; ctx.beginPath(); });
+
+        function draw(e) {
+            if (!isDrawing) return;
+            ctx.lineWidth = 16;
+            ctx.lineCap = "round";
+            ctx.strokeStyle = "black";
+            ctx.lineTo(e.offsetX, e.offsetY);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(e.offsetX, e.offsetY);
+        }
+
+        document.getElementById('btnClear').addEventListener('click', () => {
+            clearCanvas();
+            document.getElementById('result').innerText = "숫자를 그리고 '인식하기'를 클릭하세요";
+        });
+
+        document.getElementById('btnPredict').addEventListener('click', async () => {
+            if (!model) return;
+            
+            try {
+                // 1. 캔버스에서 흑백(1채널) 이미지 추출 후 28x28 리사이징
+                let tensor = tf.browser.fromPixels(canvas, 1)
+                    .resizeBilinear([28, 28])
+                    .toFloat();
+                
+                // 2. 색상 반전 (흰 바탕 검은 글씨 -> 검은 바탕 흰 글씨) 및 정규화
+                tensor = tf.scalar(255).sub(tensor).div(tf.scalar(255.0));
+
+                // 3. 차원 확장 [1, 28, 28, 1]
+                tensor = tensor.expandDims(0);
+
+                // 4. 예측 수행
+                const prediction = model.predict(tensor);
+                
+                // 5. 텐서플로우 내장 함수로 안전하게 결과값 추출
+                const predictedDigit = prediction.argMax(1).dataSync()[0];
+                const confidence = prediction.max().dataSync()[0] * 100;
+                
+                document.getElementById('result').innerHTML = `<span style="color:red; font-size: 20px;">예측 결과: ${predictedDigit}</span><br>(신뢰도: ${confidence.toFixed(2)}%)`;
+
+                // 메모리 정리
+                tensor.dispose();
+                prediction.dispose();
+            } catch (error) {
+                console.error(error);
+                document.getElementById('result').innerHTML = "인식 중 오류가 발생했습니다.<br>F12를 눌러 콘솔을 확인해주세요.";
+            }
+        });
+    </script>
+</body>
+</html>
